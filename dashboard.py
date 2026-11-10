@@ -4,6 +4,10 @@ import pandas as pd
 from pathlib import Path
 from html import escape
 
+# ============================================================
+# VERSE NHL DASHBOARD
+# ============================================================
+
 st.set_page_config(
     page_title="VERSE | NHL Intelligence",
     page_icon="🏒",
@@ -11,15 +15,11 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ==========================================
-# SETTINGS
-# ==========================================
-
 COVER_THRESHOLD = 65.0
 
-# ==========================================
+# ============================================================
 # STYLING
-# ==========================================
+# ============================================================
 
 st.html("""
 <style>
@@ -56,9 +56,7 @@ h1, h2, h3 {
 }
 
 .match-card {
-    background: linear-gradient(
-        135deg, #152238, #101B2C
-    );
+    background: linear-gradient(135deg, #152238, #101B2C);
     border: 1px solid #293B54;
     border-radius: 18px;
     padding: 22px;
@@ -67,7 +65,7 @@ h1, h2, h3 {
 
 .match-top {
     display: grid;
-    grid-template-columns: 1fr 1.4fr 1fr;
+    grid-template-columns: 1fr 1.5fr 1fr;
     align-items: center;
     gap: 10px;
 }
@@ -91,11 +89,12 @@ h1, h2, h3 {
     letter-spacing: 1px;
 }
 
-.projected-score {
+.expected-goals {
     font-size: 32px;
     font-weight: 900;
     color: #F8FAFC;
     margin: 5px 0;
+    white-space: nowrap;
 }
 
 .lean-pill {
@@ -227,7 +226,7 @@ h1, h2, h3 {
     }
 
     .match-top {
-        grid-template-columns: 1fr 1.2fr 1fr;
+        grid-template-columns: 1fr 1.5fr 1fr;
         gap: 5px;
     }
 
@@ -239,8 +238,8 @@ h1, h2, h3 {
         font-size: 17px;
     }
 
-    .projected-score {
-        font-size: 25px;
+    .expected-goals {
+        font-size: 22px;
     }
 
     .market-grid {
@@ -263,9 +262,9 @@ h1, h2, h3 {
 </style>
 """)
 
-# ==========================================
+# ============================================================
 # HELPERS
-# ==========================================
+# ============================================================
 
 def num(value, default=None):
     try:
@@ -280,43 +279,54 @@ def num(value, default=None):
 def safe(value):
     if value is None:
         return "—"
+
     try:
         if pd.isna(value):
             return "—"
     except (TypeError, ValueError):
         pass
+
     return escape(str(value))
 
 
 def fmt(value, decimals=1, suffix=""):
     value = num(value)
+
     if value is None:
         return "—"
+
     return f"{value:.{decimals}f}{suffix}"
 
 
 def signed(value, suffix="%"):
     value = num(value)
+
     if value is None:
         return "—"
+
     return f"{value:+.1f}{suffix}"
 
 
 def odds_fmt(value):
     value = num(value)
+
     if value is None:
         return "—"
+
     return f"+{value:.0f}" if value > 0 else f"{value:.0f}"
 
 
 @st.cache_data(ttl=300)
 def load_predictions():
-    files = sorted(Path("reports").glob("nhl_fanduel_*.csv"))
+    files = sorted(
+        Path("reports").glob("nhl_fanduel_*.csv")
+    )
 
     if not files:
         return pd.DataFrame(), None
 
     latest = files[-1]
+
     return pd.read_csv(latest), latest
 
 
@@ -330,6 +340,10 @@ def load_history():
     return pd.read_csv(path)
 
 
+# ============================================================
+# PUCK-LINE HELPERS
+# ============================================================
+
 def puckline_data(team, row, sign):
     prefix = "plus" if sign > 0 else "minus"
     line = "+1.5" if sign > 0 else "-1.5"
@@ -338,19 +352,29 @@ def puckline_data(team, row, sign):
         "team": team,
         "label": f"{team} {line}",
         "prob": num(
-            row.get(f"puckline_{prefix}_1_5_prob_pct")
+            row.get(
+                f"puckline_{prefix}_1_5_prob_pct"
+            )
         ),
         "roi": num(
-            row.get(f"puckline_{prefix}_1_5_roi_pct")
+            row.get(
+                f"puckline_{prefix}_1_5_roi_pct"
+            )
         ),
         "odds": num(
-            row.get(f"puckline_{prefix}_1_5_odds")
+            row.get(
+                f"puckline_{prefix}_1_5_odds"
+            )
         ),
     }
 
 
 def market_tile(item, selected=False):
-    css = "market-box selected" if selected else "market-box"
+    css = (
+        "market-box selected"
+        if selected
+        else "market-box"
+    )
 
     prob = fmt(item["prob"], 1, "%")
     roi = signed(item["roi"])
@@ -360,27 +384,43 @@ def market_tile(item, selected=False):
         '<div class="green-tag">'
         '✓ QUALIFIED PUCK-LINE LEAN'
         '</div>'
-        if selected else ""
+        if selected
+        else ""
     )
 
     return f"""
     <div class="{css}">
-        <div class="market-name">{safe(item["label"])}</div>
-        <div class="market-number">{prob}</div>
+        <div class="market-name">
+            {safe(item["label"])}
+        </div>
+
+        <div class="market-number">
+            {prob}
+        </div>
+
         <div class="market-detail">
             Estimated cover probability<br>
             FanDuel: {odds}<br>
             Estimated ROI: {roi}
         </div>
+
         {tag}
     </div>
     """
 
 
 def moneyline_tile(team, row):
-    prob = num(row.get("model_win_pct"))
-    roi = num(row.get("expected_roi_pct"))
-    edge = num(row.get("edge_pp"))
+    prob = num(
+        row.get("model_win_pct")
+    )
+
+    roi = num(
+        row.get("expected_roi_pct")
+    )
+
+    edge = num(
+        row.get("edge_pp")
+    )
 
     roi_color = (
         "#86EFAC"
@@ -390,40 +430,53 @@ def moneyline_tile(team, row):
 
     return f"""
     <div class="market-box">
+
         <div class="small-label">
             {safe(team)} MONEYLINE
         </div>
+
         <div class="market-number">
             {odds_fmt(row.get("fanduel_us_ml"))}
         </div>
+
         <div class="market-detail">
-            Model win probability: {fmt(prob, 2, "%")}<br>
-            Model edge: {signed(edge, " pp")}
+            Model win probability:
+            {fmt(prob, 2, "%")}<br>
+
+            Model edge:
+            {signed(edge, " pp")}
         </div>
-        <div style="color:{roi_color};
-                    font-weight:800;
-                    margin-top:8px;">
+
+        <div style="
+            color:{roi_color};
+            font-weight:800;
+            margin-top:8px;
+        ">
             {signed(roi)} estimated ROI
         </div>
+
     </div>
     """
 
 
-# ==========================================
+# ============================================================
 # MATCHUP CARD
-# ==========================================
+# ============================================================
 
 def render_matchup(group):
     if group.empty:
         return
 
-    matchup = str(group.iloc[0].get("matchup", ""))
+    matchup = str(
+        group.iloc[0].get("matchup", "")
+    )
 
     if " @ " not in matchup:
         return
 
     away, home = [
-        x.strip() for x in matchup.split(" @ ", 1)
+        x.strip()
+        for x in matchup.split(" @ ", 1)
     ]
 
     records = {
@@ -437,18 +490,25 @@ def render_matchup(group):
     ar = records[away]
     hr = records[home]
 
-    ap = num(ar.get("model_win_pct"))
-    hp = num(hr.get("model_win_pct"))
+    ap = num(
+        ar.get("model_win_pct")
+    )
+
+    hp = num(
+        hr.get("model_win_pct")
+    )
 
     if ap is None or hp is None:
-        st.warning(f"Missing probabilities: {matchup}")
+        st.warning(
+            f"Missing probabilities: {matchup}"
+        )
         return
 
     ap = max(0, min(100, ap))
     hp = max(0, min(100, hp))
 
-    # Favorite is based on model win probability.
-    # Display only favorite -1.5 and underdog +1.5.
+    # Determine favorite using model win probability.
+    # Show ONLY favorite -1.5 and underdog +1.5.
 
     if ap >= hp:
         favorite_team = away
@@ -473,15 +533,18 @@ def render_matchup(group):
         -1,
     )
 
-    lines = [underdog_line, favorite_line]
+    lines = [
+        underdog_line,
+        favorite_line,
+    ]
 
-    # Qualify a puck line only if:
-    # - Estimated cover probability >= 65%
-    # - Estimated ROI > 0
-    # - FanDuel odds are available
+    # ========================================================
+    # QUALIFY PUCK-LINE PICKS
+    # ========================================================
 
     qualified = [
-        item for item in lines
+        item
+        for item in lines
         if item["prob"] is not None
         and item["prob"] >= COVER_THRESHOLD
         and item["roi"] is not None
@@ -490,59 +553,103 @@ def render_matchup(group):
     ]
 
     pick = (
-        max(qualified, key=lambda x: x["roi"])
-        if qualified else None
+        max(
+            qualified,
+            key=lambda x: x["roi"],
+        )
+        if qualified
+        else None
     )
 
-    pick_label = pick["label"] if pick else None
+    pick_label = (
+        pick["label"]
+        if pick
+        else None
+    )
 
     valid_lines = [
-        item for item in lines
+        item
+        for item in lines
         if item["prob"] is not None
     ]
 
     cover_lean = (
-        max(valid_lines, key=lambda x: x["prob"])
-        if valid_lines else None
+        max(
+            valid_lines,
+            key=lambda x: x["prob"],
+        )
+        if valid_lines
+        else None
     )
 
-    # Expected goals and projected score
+    # ========================================================
+    # EXPECTED GOALS — NO ROUNDING
+    # ========================================================
 
-    ag = num(ar.get("projected_goals"))
-    hg = num(hr.get("projected_goals"))
+    ag = num(
+        ar.get("projected_goals")
+    )
+
+    hg = num(
+        hr.get("projected_goals")
+    )
 
     if ag is not None and hg is not None:
-        projected_score = f"{round(ag)} – {round(hg)}"
-        expected_goals = (
-            f"{ag:.2f} – {hg:.2f} expected goals"
+        expected_goals_display = (
+            f"{ag:.2f} – {hg:.2f}"
+        )
+
+        expected_goals_note = (
+            "Model-estimated expected goals"
         )
     else:
-        projected_score = "— – —"
-        expected_goals = "Expected goals unavailable"
+        expected_goals_display = "— – —"
+
+        expected_goals_note = (
+            "Expected goals unavailable"
+        )
+
+    # ========================================================
+    # LEAN LABEL
+    # ========================================================
 
     if pick:
-        lean_text = f"Lean: {pick['label']}"
+        lean_text = (
+            f"Lean: {pick['label']}"
+        )
+
         lean_class = "lean-pill"
     else:
-        lean_text = "No qualifying puck-line lean"
-        lean_class = "lean-pill neutral-pill"
+        lean_text = (
+            "No qualifying puck-line lean"
+        )
+
+        lean_class = (
+            "lean-pill neutral-pill"
+        )
+
+    # ========================================================
+    # GUIDANCE
+    # ========================================================
 
     if pick:
         guidance = (
-            f"{pick['label']} qualifies because Verse "
-            f"estimates a {pick['prob']:.1f}% chance "
-            f"of covering, meeting the "
+            f"{pick['label']} qualifies because "
+            f"Verse estimates a {pick['prob']:.1f}% "
+            f"chance of covering, meeting the "
             f"{COVER_THRESHOLD:.0f}% threshold, "
             f"with {pick['roi']:+.1f}% estimated ROI "
-            f"at FanDuel odds {odds_fmt(pick['odds'])}."
+            f"at FanDuel odds "
+            f"{odds_fmt(pick['odds'])}."
         )
     else:
         guidance = (
-            "No puck line qualifies. Verse requires "
-            f"at least {COVER_THRESHOLD:.0f}% estimated "
-            "cover probability AND positive estimated "
-            "ROI at available FanDuel odds. "
-            "Do not force a pick."
+            "No puck line qualifies. "
+            "Verse requires at least "
+            f"{COVER_THRESHOLD:.0f}% estimated "
+            "cover probability AND positive "
+            "estimated ROI at available FanDuel "
+            "odds. Do not force a pick."
         )
 
     if cover_lean:
@@ -553,15 +660,28 @@ def render_matchup(group):
     else:
         likely_text = "Unavailable"
 
-    # Best ROI across both moneylines and standard puck lines
+    # ========================================================
+    # BEST ESTIMATED ROI
+    # ========================================================
 
     value_options = []
 
-    for team, row in [(away, ar), (home, hr)]:
-        roi = num(row.get("expected_roi_pct"))
-        odds = num(row.get("fanduel_us_ml"))
+    for team, row in [
+        (away, ar),
+        (home, hr),
+    ]:
+        roi = num(
+            row.get("expected_roi_pct")
+        )
 
-        if roi is not None and odds is not None:
+        odds = num(
+            row.get("fanduel_us_ml")
+        )
+
+        if (
+            roi is not None
+            and odds is not None
+        ):
             value_options.append(
                 (roi, f"{team} ML")
             )
@@ -572,7 +692,10 @@ def render_matchup(group):
             and item["odds"] is not None
         ):
             value_options.append(
-                (item["roi"], item["label"])
+                (
+                    item["roi"],
+                    item["label"],
+                )
             )
 
     if value_options:
@@ -581,13 +704,21 @@ def render_matchup(group):
             key=lambda x: x[0],
         )
 
-        best_value = (
-            f"{best[1]} ({best[0]:+.1f}% est. ROI)"
-            if best[0] > 0
-            else "No positive estimated edge"
-        )
+        if best[0] > 0:
+            best_value = (
+                f"{best[1]} "
+                f"({best[0]:+.1f}% est. ROI)"
+            )
+        else:
+            best_value = (
+                "No positive estimated edge"
+            )
     else:
         best_value = "Unavailable"
+
+    # ========================================================
+    # HTML MATCHUP CARD
+    # ========================================================
 
     html = f"""
     <div class="match-card">
@@ -595,43 +726,70 @@ def render_matchup(group):
         <div class="match-top">
 
             <div>
-                <div class="small-label">AWAY</div>
-                <div class="team-name">{safe(away)}</div>
-                <div class="team-prob">{ap:.2f}%</div>
+                <div class="small-label">
+                    AWAY
+                </div>
+
+                <div class="team-name">
+                    {safe(away)}
+                </div>
+
+                <div class="team-prob">
+                    {ap:.2f}%
+                </div>
             </div>
 
             <div style="text-align:center;">
+
                 <div class="small-label">
-                    PROJECTED SCORE
+                    EXPECTED GOALS
                 </div>
-                <div class="projected-score">
-                    {projected_score}
+
+                <div class="expected-goals">
+                    {expected_goals_display}
                 </div>
+
                 <div class="{lean_class}">
                     {safe(lean_text)}
                 </div>
+
             </div>
 
             <div style="text-align:right;">
-                <div class="small-label">HOME</div>
-                <div class="team-name">{safe(home)}</div>
-                <div class="team-prob">{hp:.2f}%</div>
+
+                <div class="small-label">
+                    HOME
+                </div>
+
+                <div class="team-name">
+                    {safe(home)}
+                </div>
+
+                <div class="team-prob">
+                    {hp:.2f}%
+                </div>
+
             </div>
 
         </div>
 
         <div class="prob-bar">
-            <div class="away-bar"
-                 style="width:{ap:.2f}%;">
-            </div>
-            <div class="home-bar"
-                 style="width:{hp:.2f}%;">
-            </div>
+
+            <div
+                class="away-bar"
+                style="width:{ap:.2f}%;"
+            ></div>
+
+            <div
+                class="home-bar"
+                style="width:{hp:.2f}%;"
+            ></div>
+
         </div>
 
-        <div class="muted" style="text-align:center;">
-            {safe(expected_goals)} ·
-            Rounded score illustration
+        <div class="muted"
+             style="text-align:center;">
+            {safe(expected_goals_note)}
         </div>
 
         <div class="section-label">
@@ -646,31 +804,47 @@ def render_matchup(group):
         </div>
 
         <div class="market-grid">
+
             {market_tile(
                 underdog_line,
                 pick_label == underdog_line["label"]
             )}
+
             {market_tile(
                 favorite_line,
                 pick_label == favorite_line["label"]
             )}
+
         </div>
 
         <div class="guidance">
-            <strong>WHEN TO CONSIDER A PUCK LINE</strong>
+
+            <strong>
+                WHEN TO CONSIDER A PUCK LINE
+            </strong>
+
             <div style="margin-top:7px;">
                 {safe(guidance)}
             </div>
-            <div class="muted" style="margin-top:8px;">
+
+            <div class="muted"
+                 style="margin-top:8px;">
                 Most likely to cover:
                 {safe(likely_text)}
             </div>
+
         </div>
 
-        <div class="muted" style="margin-bottom:12px;">
-            Highest estimated ROI across ML and
-            standard puck lines:
-            <strong>{safe(best_value)}</strong>
+        <div class="muted"
+             style="margin-bottom:12px;">
+
+            Highest estimated ROI across ML
+            and standard puck lines:
+
+            <strong>
+                {safe(best_value)}
+            </strong>
+
         </div>
 
         <div class="section-label">
@@ -678,8 +852,11 @@ def render_matchup(group):
         </div>
 
         <div class="market-grid">
+
             {moneyline_tile(away, ar)}
+
             {moneyline_tile(home, hr)}
+
         </div>
 
         <div class="section-label">
@@ -687,35 +864,45 @@ def render_matchup(group):
         </div>
 
         <div class="muted">
+
             {safe(away)}:
             {safe(ar.get("projected_goalie"))}
+
             &nbsp; · &nbsp;
+
             {safe(home)}:
             {safe(hr.get("projected_goalie"))}
+
         </div>
 
-        <div class="muted" style="margin-top:15px;">
-            Experimental projections. Model probabilities
-            and ROI estimates have not yet been
+        <div class="muted"
+             style="margin-top:15px;">
+
+            Experimental projections.
+            Model probabilities and ROI
+            estimates have not yet been
             validated against historical results.
+
         </div>
 
     </div>
     """
 
-    # Render HTML directly instead of Markdown.
+    # Render HTML directly, avoiding Markdown code blocks.
     st.html(html)
 
 
-# ==========================================
+# ============================================================
 # LOAD DATA
-# ==========================================
+# ============================================================
 
 df, report_path = load_predictions()
 history = load_history()
 
 st.html(
-    '<div class="verse-title">VERSE<span>.</span></div>'
+    '<div class="verse-title">'
+    'VERSE<span>.</span>'
+    '</div>'
     '<div class="verse-subtitle">'
     'NHL INTELLIGENCE · MONEYLINE + PUCK LINE'
     '</div>'
@@ -728,9 +915,9 @@ tabs = st.tabs([
     "Model Performance",
 ])
 
-# ==========================================
-# TAB 1: TODAY'S PICKS
-# ==========================================
+# ============================================================
+# TAB 1 — TODAY'S PICKS
+# ============================================================
 
 with tabs[0]:
     st.title("Today's Matchups")
@@ -762,11 +949,13 @@ with tabs[0]:
             group = df[
                 df["matchup"].astype(str) == matchup
             ]
+
             render_matchup(group)
 
-# ==========================================
-# TAB 2: TEAM ANALYTICS
-# ==========================================
+
+# ============================================================
+# TAB 2 — TEAM ANALYTICS
+# ============================================================
 
 with tabs[1]:
     st.title("Team Analytics")
@@ -803,11 +992,26 @@ with tabs[1]:
             )
         else:
             metrics = [
-                ("xgf_per60", "Expected Goals For / 60"),
-                ("xga_per60", "Expected Goals Against / 60"),
-                ("xgf_pct", "Expected Goals Share (%)"),
-                ("hdcf_pct", "High-Danger Chances (%)"),
-                ("cf_pct", "Corsi For (%)"),
+                (
+                    "xgf_per60",
+                    "Expected Goals For / 60",
+                ),
+                (
+                    "xga_per60",
+                    "Expected Goals Against / 60",
+                ),
+                (
+                    "xgf_pct",
+                    "Expected Goals Share (%)",
+                ),
+                (
+                    "hdcf_pct",
+                    "High-Danger Chances (%)",
+                ),
+                (
+                    "cf_pct",
+                    "Corsi For (%)",
+                ),
                 (
                     "score_adj_xg_diff",
                     "Score-Adjusted xG Differential",
@@ -873,17 +1077,16 @@ with tabs[1]:
                 "performance."
             )
 
-# ==========================================
-# TAB 3: GOALIE ANALYTICS
-# ==========================================
+
+# ============================================================
+# TAB 3 — GOALIE ANALYTICS
+# ============================================================
 
 with tabs[2]:
     st.title("Goalie Analytics")
 
     if df.empty:
-        st.info(
-            "No goalie data available."
-        )
+        st.info("No goalie data available.")
     else:
         goalie_columns = [
             "team",
@@ -920,7 +1123,6 @@ with tabs[2]:
             teams,
         )
 
-        # Correctly define matching before use.
         matching = df[
             df["team"].astype(str) == team
         ]
@@ -941,11 +1143,15 @@ with tabs[2]:
             )
 
             confidence = num(
-                row.get("projected_goalie_confidence")
+                row.get(
+                    "projected_goalie_confidence"
+                )
             )
 
             effect = num(
-                row.get("goalie_win_pct_change")
+                row.get(
+                    "goalie_win_pct_change"
+                )
             )
 
             c1.metric(
@@ -974,9 +1180,10 @@ with tabs[2]:
                 "not confirmed starting goalies."
             )
 
-# ==========================================
-# TAB 4: MODEL PERFORMANCE
-# ==========================================
+
+# ============================================================
+# TAB 4 — MODEL PERFORMANCE
+# ============================================================
 
 with tabs[3]:
     st.title("Model Performance")
@@ -995,7 +1202,8 @@ with tabs[3]:
 
         result_col = next(
             (
-                col for col in [
+                col
+                for col in [
                     "result",
                     "bet_result",
                     "outcome",
@@ -1048,15 +1256,8 @@ with tabs[3]:
 
                 a, b, c = st.columns(3)
 
-                a.metric(
-                    "Wins",
-                    won,
-                )
-
-                b.metric(
-                    "Losses",
-                    lost,
-                )
+                a.metric("Wins", won)
+                b.metric("Losses", lost)
 
                 c.metric(
                     "Win Rate",
@@ -1080,17 +1281,17 @@ with tabs[3]:
             mime="text/csv",
         )
 
-# ==========================================
+
+# ============================================================
 # FOOTER
-# ==========================================
+# ============================================================
 
 st.html("""
 <div class="disclaimer">
-    VERSE NHL INTELLIGENCE · Experimental
-    analytics dashboard. The 65% threshold
-    is a screening rule, not a validated
-    winning strategy. Model probabilities,
-    projected goals, and expected ROI are
-    estimates, not guarantees.
+    VERSE NHL INTELLIGENCE · Experimental analytics
+    dashboard. The 65% threshold is a screening
+    rule, not a validated winning strategy.
+    Model probabilities, expected goals, and
+    estimated ROI are estimates, not guarantees.
 </div>
 """)
