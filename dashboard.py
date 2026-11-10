@@ -12,25 +12,16 @@ st.set_page_config(
 )
 
 # ==========================================
-# VERSE SETTINGS
+# SETTINGS
 # ==========================================
 
 COVER_THRESHOLD = 65.0
 
-BG = "#090F1D"
-CARD = "#142238"
-INNER = "#17263C"
-BORDER = "#293B54"
-GREEN = "#4ADE80"
-GREEN_TEXT = "#86EFAC"
-MUTED = "#94A3B8"
-WHITE = "#F8FAFC"
-
 # ==========================================
-# THEME
+# STYLING
 # ==========================================
 
-st.markdown("""
+st.html("""
 <style>
 .stApp {
     background: #090F1D;
@@ -47,25 +38,10 @@ h1, h2, h3 {
     color: #F8FAFC;
 }
 
-[data-testid="stMetric"] {
-    background: #142238;
-    border: 1px solid #293B54;
-    border-radius: 12px;
-    padding: 15px;
-}
-
-[data-testid="stMetricLabel"] {
-    color: #94A3B8;
-}
-
-[data-testid="stMetricValue"] {
-    color: #F8FAFC;
-}
-
 .verse-title {
-    font-size: 36px;
+    font-size: 38px;
     font-weight: 900;
-    letter-spacing: -1.5px;
+    letter-spacing: -1px;
 }
 
 .verse-title span {
@@ -285,7 +261,7 @@ h1, h2, h3 {
     }
 }
 </style>
-""", unsafe_allow_html=True)
+""")
 
 # ==========================================
 # HELPERS
@@ -336,8 +312,10 @@ def odds_fmt(value):
 @st.cache_data(ttl=300)
 def load_predictions():
     files = sorted(Path("reports").glob("nhl_fanduel_*.csv"))
+
     if not files:
         return pd.DataFrame(), None
+
     latest = files[-1]
     return pd.read_csv(latest), latest
 
@@ -345,8 +323,10 @@ def load_predictions():
 @st.cache_data(ttl=300)
 def load_history():
     path = Path("history/predictions.csv")
+
     if not path.exists():
         return pd.DataFrame()
+
     return pd.read_csv(path)
 
 
@@ -403,7 +383,8 @@ def moneyline_tile(team, row):
     edge = num(row.get("edge_pp"))
 
     roi_color = (
-        "#86EFAC" if roi is not None and roi > 0
+        "#86EFAC"
+        if roi is not None and roi > 0
         else "#FDA4AF"
     )
 
@@ -466,8 +447,8 @@ def render_matchup(group):
     ap = max(0, min(100, ap))
     hp = max(0, min(100, hp))
 
-    # Determine favorite from model win probability.
-    # Only show favorite -1.5 and underdog +1.5.
+    # Favorite is based on model win probability.
+    # Display only favorite -1.5 and underdog +1.5.
 
     if ap >= hp:
         favorite_team = away
@@ -481,19 +462,23 @@ def render_matchup(group):
         underdog_row = ar
 
     underdog_line = puckline_data(
-        underdog_team, underdog_row, +1
+        underdog_team,
+        underdog_row,
+        +1,
     )
 
     favorite_line = puckline_data(
-        favorite_team, favorite_row, -1
+        favorite_team,
+        favorite_row,
+        -1,
     )
 
     lines = [underdog_line, favorite_line]
 
-    # A line qualifies only when:
-    # 1. Cover probability >= 65%
-    # 2. Estimated ROI > 0
-    # 3. A real bookmaker price exists
+    # Qualify a puck line only if:
+    # - Estimated cover probability >= 65%
+    # - Estimated ROI > 0
+    # - FanDuel odds are available
 
     qualified = [
         item for item in lines
@@ -504,17 +489,12 @@ def render_matchup(group):
         and item["odds"] is not None
     ]
 
-    # Highlight only the qualifying line with
-    # the highest estimated ROI.
-
     pick = (
         max(qualified, key=lambda x: x["roi"])
         if qualified else None
     )
 
     pick_label = pick["label"] if pick else None
-
-    # Highest probability to cover, regardless of ROI.
 
     valid_lines = [
         item for item in lines
@@ -526,7 +506,7 @@ def render_matchup(group):
         if valid_lines else None
     )
 
-    # Projected expected goals.
+    # Expected goals and projected score
 
     ag = num(ar.get("projected_goals"))
     hg = num(hr.get("projected_goals"))
@@ -540,8 +520,6 @@ def render_matchup(group):
         projected_score = "— – —"
         expected_goals = "Expected goals unavailable"
 
-    # Scorecard lean label.
-
     if pick:
         lean_text = f"Lean: {pick['label']}"
         lean_class = "lean-pill"
@@ -549,13 +527,11 @@ def render_matchup(group):
         lean_text = "No qualifying puck-line lean"
         lean_class = "lean-pill neutral-pill"
 
-    # Guidance text underneath.
-
     if pick:
         guidance = (
             f"{pick['label']} qualifies because Verse "
             f"estimates a {pick['prob']:.1f}% chance "
-            f"of covering, above the "
+            f"of covering, meeting the "
             f"{COVER_THRESHOLD:.0f}% threshold, "
             f"with {pick['roi']:+.1f}% estimated ROI "
             f"at FanDuel odds {odds_fmt(pick['odds'])}."
@@ -577,24 +553,34 @@ def render_matchup(group):
     else:
         likely_text = "Unavailable"
 
-    # Compare both moneylines and the standard puck lines.
+    # Best ROI across both moneylines and standard puck lines
 
     value_options = []
 
     for team, row in [(away, ar), (home, hr)]:
         roi = num(row.get("expected_roi_pct"))
         odds = num(row.get("fanduel_us_ml"))
+
         if roi is not None and odds is not None:
-            value_options.append((roi, f"{team} ML"))
+            value_options.append(
+                (roi, f"{team} ML")
+            )
 
     for item in lines:
-        if item["roi"] is not None and item["odds"] is not None:
+        if (
+            item["roi"] is not None
+            and item["odds"] is not None
+        ):
             value_options.append(
                 (item["roi"], item["label"])
             )
 
     if value_options:
-        best = max(value_options, key=lambda x: x[0])
+        best = max(
+            value_options,
+            key=lambda x: x[0],
+        )
+
         best_value = (
             f"{best[1]} ({best[0]:+.1f}% est. ROI)"
             if best[0] > 0
@@ -602,8 +588,6 @@ def render_matchup(group):
         )
     else:
         best_value = "Unavailable"
-
-    # Matchup HTML.
 
     html = f"""
     <div class="match-card">
@@ -655,7 +639,7 @@ def render_matchup(group):
         </div>
 
         <div class="muted">
-            Only underdog +1.5 and favorite -1.5.
+            Underdog +1.5 and favorite -1.5 only.
             Green requires at least
             {COVER_THRESHOLD:.0f}% estimated cover
             probability and positive estimated ROI.
@@ -711,15 +695,16 @@ def render_matchup(group):
         </div>
 
         <div class="muted" style="margin-top:15px;">
-            Puck-line probabilities and ROI estimates
-            are experimental and not yet validated
-            against historical results.
+            Experimental projections. Model probabilities
+            and ROI estimates have not yet been
+            validated against historical results.
         </div>
 
     </div>
     """
 
-    st.markdown(html, unsafe_allow_html=True)
+    # Render HTML directly instead of Markdown.
+    st.html(html)
 
 
 # ==========================================
@@ -729,12 +714,11 @@ def render_matchup(group):
 df, report_path = load_predictions()
 history = load_history()
 
-st.markdown(
+st.html(
     '<div class="verse-title">VERSE<span>.</span></div>'
     '<div class="verse-subtitle">'
     'NHL INTELLIGENCE · MONEYLINE + PUCK LINE'
-    '</div>',
-    unsafe_allow_html=True,
+    '</div>'
 )
 
 tabs = st.tabs([
@@ -769,7 +753,10 @@ with tabs[0]:
             .tolist()
         )
 
-        st.metric("Matchups Analyzed", len(matchups))
+        st.metric(
+            "Matchups Analyzed",
+            len(matchups),
+        )
 
         for matchup in matchups:
             group = df[
@@ -811,7 +798,9 @@ with tabs[1]:
         ].copy()
 
         if len(pair) < 2:
-            st.warning("Both teams are required.")
+            st.warning(
+                "Both teams are required."
+            )
         else:
             metrics = [
                 ("xgf_per60", "Expected Goals For / 60"),
@@ -821,19 +810,26 @@ with tabs[1]:
                 ("cf_pct", "Corsi For (%)"),
                 (
                     "score_adj_xg_diff",
-                    "Score-Adjusted xG Differential"
+                    "Score-Adjusted xG Differential",
                 ),
             ]
 
             rows = []
 
             for prefix, label in metrics:
-                column = f"{prefix}_last_{window}"
+                column = (
+                    f"{prefix}_last_{window}"
+                )
 
-                record = {"Metric": label}
+                record = {
+                    "Metric": label
+                }
 
                 for _, team_row in pair.iterrows():
-                    team = str(team_row["team"])
+                    team = str(
+                        team_row["team"]
+                    )
+
                     record[team] = num(
                         team_row.get(column)
                     )
@@ -842,7 +838,9 @@ with tabs[1]:
 
             comparison = pd.DataFrame(rows)
 
-            st.subheader("Advanced Team Comparison")
+            st.subheader(
+                "Advanced Team Comparison"
+            )
 
             st.dataframe(
                 comparison,
@@ -850,7 +848,9 @@ with tabs[1]:
                 use_container_width=True,
             )
 
-            st.subheader("Win Probability Comparison")
+            st.subheader(
+                "Win Probability Comparison"
+            )
 
             chart_data = pair[
                 ["team", "model_win_pct"]
@@ -859,7 +859,7 @@ with tabs[1]:
             chart_data["model_win_pct"] = (
                 pd.to_numeric(
                     chart_data["model_win_pct"],
-                    errors="coerce"
+                    errors="coerce",
                 )
             )
 
@@ -881,7 +881,9 @@ with tabs[2]:
     st.title("Goalie Analytics")
 
     if df.empty:
-        st.info("No goalie data available.")
+        st.info(
+            "No goalie data available."
+        )
     else:
         goalie_columns = [
             "team",
@@ -907,7 +909,10 @@ with tabs[2]:
         )
 
         teams = sorted(
-            df["team"].dropna().astype(str).unique()
+            df["team"]
+            .dropna()
+            .astype(str)
+            .unique()
         )
 
         team = st.selectbox(
@@ -915,6 +920,7 @@ with tabs[2]:
             teams,
         )
 
+        # Correctly define matching before use.
         matching = df[
             df["team"].astype(str) == team
         ]
@@ -923,15 +929,21 @@ with tabs[2]:
             row = matching.iloc[0]
 
             st.subheader(
-                safe(row.get("projected_goalie"))
+                safe(
+                    row.get("projected_goalie")
+                )
             )
 
             c1, c2, c3 = st.columns(3)
 
-            sv = num(row.get("goalie_recent_sv_pct"))
+            sv = num(
+                row.get("goalie_recent_sv_pct")
+            )
+
             confidence = num(
                 row.get("projected_goalie_confidence")
             )
+
             effect = num(
                 row.get("goalie_win_pct_change")
             )
@@ -939,19 +951,22 @@ with tabs[2]:
             c1.metric(
                 "Recent Save %",
                 f"{sv * 100:.2f}%"
-                if sv is not None else "—"
+                if sv is not None
+                else "—",
             )
 
             c2.metric(
                 "Usage Share",
                 f"{confidence:.1f}%"
-                if confidence is not None else "—"
+                if confidence is not None
+                else "—",
             )
 
             c3.metric(
                 "Win Probability Effect",
                 f"{effect:+.2f} pp"
-                if effect is not None else "—"
+                if effect is not None
+                else "—",
             )
 
             st.caption(
@@ -969,7 +984,8 @@ with tabs[3]:
     if history.empty:
         st.info(
             "Historical predictions will appear "
-            "when history/predictions.csv is available."
+            "when history/predictions.csv "
+            "is available."
         )
     else:
         st.metric(
@@ -999,31 +1015,57 @@ with tabs[3]:
                 .str.strip()
             )
 
-            wins = results.isin(
-                ["win", "won", "w", "true", "1"]
-            )
+            wins = results.isin([
+                "win",
+                "won",
+                "w",
+                "true",
+                "1",
+            ])
 
-            losses = results.isin(
-                ["loss", "lost", "l", "false", "0"]
-            )
+            losses = results.isin([
+                "loss",
+                "lost",
+                "l",
+                "false",
+                "0",
+            ])
 
             settled = wins | losses
 
             if settled.any():
-                total = int(settled.sum())
-                won = int(wins.sum())
-                lost = int(losses.sum())
+                total = int(
+                    settled.sum()
+                )
+
+                won = int(
+                    wins.sum()
+                )
+
+                lost = int(
+                    losses.sum()
+                )
 
                 a, b, c = st.columns(3)
 
-                a.metric("Wins", won)
-                b.metric("Losses", lost)
-                c.metric(
-                    "Win Rate",
-                    f"{won / total * 100:.1f}%"
+                a.metric(
+                    "Wins",
+                    won,
                 )
 
-        st.subheader("Historical Predictions")
+                b.metric(
+                    "Losses",
+                    lost,
+                )
+
+                c.metric(
+                    "Win Rate",
+                    f"{won / total * 100:.1f}%",
+                )
+
+        st.subheader(
+            "Historical Predictions"
+        )
 
         st.dataframe(
             history,
@@ -1042,7 +1084,7 @@ with tabs[3]:
 # FOOTER
 # ==========================================
 
-st.markdown("""
+st.html("""
 <div class="disclaimer">
     VERSE NHL INTELLIGENCE · Experimental
     analytics dashboard. The 65% threshold
@@ -1051,4 +1093,4 @@ st.markdown("""
     projected goals, and expected ROI are
     estimates, not guarantees.
 </div>
-""", unsafe_allow_html=True)
+""")
