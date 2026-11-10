@@ -224,6 +224,29 @@ h1, h2, h3 {letter-spacing: -0.035em;}
     .kpi {padding: 14px;}
     .kpi-value {font-size: 24px;}
 }
+
+.verse-match-top {display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:12px;align-items:center;}
+.verse-center-label {text-align:center;}
+.verse-team-prob {font-size:25px;font-weight:800;color:#F8FAFC;margin-top:7px;}
+.verse-dual-track {display:flex;width:100%;height:13px;border-radius:99px;overflow:hidden;gap:3px;background:#29374C;margin:18px 0 22px;}
+.verse-away-fill {background:linear-gradient(90deg,#7B91B3,#A9BDD6);}
+.verse-home-fill {background:linear-gradient(90deg,#22C55E,#86EFAC);}
+.verse-two-markets {display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.verse-market {background:#101A2B;border:1px solid #293B54;border-radius:12px;padding:15px;}
+.verse-market-price {font-size:24px;font-weight:800;color:#F8FAFC;margin:7px 0;}
+.verse-market-heading {color:#E2E8F0;font-size:12px;font-weight:800;letter-spacing:1.3px;margin:20px 0 10px;}
+.verse-spreads {display:grid;grid-template-columns:1fr 1fr;gap:9px;}
+.verse-spread-row {background:#101A2B;border:1px solid #293B54;border-radius:10px;padding:12px;display:flex;justify-content:space-between;gap:12px;color:#E2E8F0;font-size:13px;}
+.verse-spread-row strong {color:#94A3B8;}
+@media (max-width:600px) {
+ .verse-match-top {grid-template-columns:1fr .8fr 1fr;gap:5px;}
+ .verse-center-label .stat-label {font-size:8px;}
+ .verse-team-prob {font-size:20px;}
+ .verse-two-markets,.verse-spreads {grid-template-columns:1fr 1fr;gap:7px;}
+ .verse-market {padding:10px;}
+ .verse-market-price {font-size:19px;}
+ .verse-spread-row {flex-direction:column;padding:9px;gap:4px;}
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -287,57 +310,118 @@ def load_history():
     return pd.read_csv(path)
 
 
-def pick_card(row):
-    team = txt(row.get("team"))
-    matchup = txt(row.get("matchup"))
-    side = txt(row.get("side"))
-    goalie = txt(row.get("projected_goalie"))
+def matchup_card(group):
+    '''One matchup card, both teams, without inventing puck-line odds.'''
+    if group.empty:
+        return
+    matchup = str(group.iloc[0].get("matchup", ""))
+    if " @ " not in matchup:
+        return
+    away, home = [x.strip() for x in matchup.split(" @ ", 1)]
+    records = {str(r.get("team", "")): r for _, r in group.iterrows()}
+    if away not in records or home not in records:
+        return
+    ar, hr = records[away], records[home]
+    ap = numeric(ar.get("model_win_pct"), None)
+    hp = numeric(hr.get("model_win_pct"), None)
+    if ap is None or hp is None:
+        st.warning(f"Missing probabilities for {matchup}")
+        return
+    ap = max(0, min(100, ap))
+    hp = max(0, min(100, hp))
+    favorite = away if ap > hp else home if hp > ap else "Even"
+    aroi = numeric(ar.get("expected_roi_pct"), None)
+    hroi = numeric(hr.get("expected_roi_pct"), None)
+    aedge = numeric(ar.get("edge_pp"), None)
+    hedge = numeric(hr.get("edge_pp"), None)
 
-    win = numeric(row.get("model_win_pct"))
-    edge = numeric(row.get("edge_pp"))
-    roi = numeric(row.get("expected_roi_pct"))
-    odds = odds_label(row.get("fanduel_us_ml"))
+    def signed(v, suffix="%"):
+        return f"{v:+.2f}{suffix}" if v is not None else "—"
 
-    bar_width = max(0, min(100, win))
-    positive = roi > 0
-    badge_class = "" if positive else "negative"
-    edge_class = "green-text" if edge > 0 else "red-text"
+    def roi_class(v):
+        return "green-text" if v is not None and v > 0 else "red-text" if v is not None and v < 0 else ""
+
+    def spread_row(team, row, sign):
+        prefix = 'plus' if sign > 0 else 'minus'
+        odds = row.get(f'puckline_{prefix}_1_5_odds')
+        probability = numeric(row.get(f'puckline_{prefix}_1_5_prob_pct'), None)
+        value = numeric(row.get(f'puckline_{prefix}_1_5_roi_pct'), None)
+        label = f'{team} {"+" if sign > 0 else "-"}1.5'
+        odds_text = odds_label(odds)
+        details = f'{probability:.1f}% cover' if probability is not None else 'Awaiting model'
+        if value is not None:
+            details += f' · {value:+.1f}% est. ROI'
+        return f'<div class="verse-spread-row"><span>{escape(label)}<div class="muted">{escape(details)}</div></span><strong>{escape(odds_text)}</strong></div>'
+
+    ag = numeric(ar.get('projected_goals'), None)
+    hg = numeric(hr.get('projected_goals'), None)
+    projected = (f'{ag:.2f} – {hg:.2f} expected goals' if ag is not None and hg is not None
+                 else 'Awaiting scoring model')
+    options = []
+    for team, row in ((away, ar), (home, hr)):
+        for sign in (1, -1):
+            p = numeric(row.get(f'puckline_{"plus" if sign > 0 else "minus"}_1_5_prob_pct'), None)
+            r = numeric(row.get(f'puckline_{"plus" if sign > 0 else "minus"}_1_5_roi_pct'), None)
+            if p is not None:
+                options.append((p, r, f'{team} {"+" if sign > 0 else "-"}1.5'))
+    cover_lean = max(options, key=lambda x: x[0])[2] if options else 'Unavailable'
+    value_options = [(r, label) for p, r, label in options if r is not None]
+    value_options += [(v, f'{team} ML') for team, v in ((away, aroi), (home, hroi)) if v is not None]
+    best_value = max(value_options) if value_options else None
+    value_lean = (best_value[1] if best_value and best_value[0] > 0 else 'No positive estimated edge')
+
+    def team_market(team, row, probability, roi, edge):
+        return f"""<div class="verse-market">
+            <div class="stat-label">{escape(team)} MONEYLINE</div>
+            <div class="verse-market-price">{odds_label(row.get("fanduel_us_ml"))}</div>
+            <div class="muted">Model: {probability:.2f}% · Edge: {signed(edge, " pp")}</div>
+            <div class="{roi_class(roi)}" style="font-weight:800;margin-top:5px;">
+                {signed(roi)} estimated ROI
+            </div>
+        </div>"""
 
     st.markdown(f"""
-    <div class="pick-card">
-        <div class="pick-top">
-            <div>
-                <div class="team-name">{team}</div>
-                <div class="matchup">{matchup} · {side}</div>
+    <div class="pick-card verse-match-card">
+        <div class="verse-match-top">
+            <div class="verse-team-side">
+                <div class="stat-label">AWAY</div>
+                <div class="team-name">{escape(away)}</div>
+                <div class="verse-team-prob">{ap:.2f}%</div>
             </div>
-            <div class="roi-badge {badge_class}">
-                {roi:+.2f}%
-                <div class="roi-small">EXPECTED ROI</div>
+            <div class="verse-center-label">
+                <div class="stat-label">MODEL WIN PROBABILITY</div>
+                <div class="muted">{escape(favorite)} {"favoured" if favorite != "Even" else "matchup"}</div>
             </div>
-        </div>
-        <div style="margin-top:20px;display:flex;
-                    justify-content:space-between;gap:10px;">
-            <span class="muted">MODEL WIN PROBABILITY</span>
-            <strong>{win:.2f}%</strong>
-        </div>
-        <div class="prob-track">
-            <div class="prob-fill" style="width:{bar_width:.2f}%"></div>
-        </div>
-        <div class="stats-row">
-            <div>
-                <div class="stat-label">FANDUEL ODDS</div>
-                <div class="stat-value">{odds}</div>
-            </div>
-            <div>
-                <div class="stat-label">MODEL EDGE</div>
-                <div class="stat-value {edge_class}">{edge:+.2f} pp</div>
-            </div>
-            <div>
-                <div class="stat-label">MARKET WIN %</div>
-                <div class="stat-value">{percentage(row.get("no_vig_market_pct"))}</div>
+            <div class="verse-team-side" style="text-align:right;">
+                <div class="stat-label">HOME</div>
+                <div class="team-name">{escape(home)}</div>
+                <div class="verse-team-prob">{hp:.2f}%</div>
             </div>
         </div>
-        <div class="goalie-line">🥅 Projected goalie: {goalie}</div>
+        <div class="verse-dual-track">
+            <div class="verse-away-fill" style="width:{ap:.2f}%;"></div>
+            <div class="verse-home-fill" style="width:{hp:.2f}%;"></div>
+        </div>
+        <div style="text-align:center;background:#101A2B;border:1px solid #293B54;border-radius:12px;padding:14px;margin:14px 0;">
+            <div class="stat-label">PROJECTED SCORING · EXPERIMENTAL</div>
+            <div style="font-weight:800;color:#F8FAFC;font-size:20px;">{escape(projected)}</div>
+            <div class="muted">Most likely puck-line cover: {escape(cover_lean)}</div>
+            <div class="muted">Highest estimated ROI: {escape(value_lean)}</div>
+        </div>
+        <div class="verse-two-markets">
+            {team_market(away, ar, ap, aroi, aedge)}
+            {team_market(home, hr, hp, hroi, hedge)}
+        </div>
+        <div class="verse-market-heading">PUCK LINES · ±1.5 GOALS</div>
+        <div class="verse-spreads">
+            {spread_row(away, ar, +1)}
+            {spread_row(home, hr, -1)}
+            {spread_row(home, hr, +1)}
+            {spread_row(away, ar, -1)}
+        </div>
+        <div class="goalie-line">🥅 {escape(away)}: {txt(ar.get("projected_goalie"))} &nbsp; · &nbsp;
+        {escape(home)}: {txt(hr.get("projected_goalie"))}</div>
+        <div class="muted" style="margin-top:9px;">Goal-margin and puck-line probabilities use an unvalidated scoring model; projected goals are averages, not a predicted exact score. Positive estimated ROI is not proven value.</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -422,7 +506,7 @@ with tabs[0]:
             '<div class="section-heading">Top Model Opportunities</div>',
             unsafe_allow_html=True,
         )
-        st.caption("Ranked by estimated expected return.")
+        st.caption("Matchups ranked by the highest estimated moneyline ROI. Both teams shown; puck-line probabilities and odds appear when supplied by the V3 model.")
 
         ranked = df.copy()
         ranked["_roi"] = pd.to_numeric(
@@ -432,19 +516,21 @@ with tabs[0]:
             ),
             errors="coerce",
         ).fillna(0)
+        # Group both teams into a single matchup card; rank by best team ROI.
         ranked = ranked.sort_values("_roi", ascending=False)
 
         only_positive = st.toggle(
             "Show only positive expected ROI", value=True
         )
         if only_positive:
-            ranked = ranked[ranked["_roi"] > 0]
+            qualifying = ranked.loc[ranked["_roi"] > 0, "matchup"].unique()
+            ranked = ranked[ranked["matchup"].isin(qualifying)]
 
         if ranked.empty:
-            st.info("No predictions match the current filter.")
+            st.info("No matchups match the current filter.")
         else:
-            for _, row in ranked.iterrows():
-                pick_card(row)
+            for _, matchup_group in ranked.groupby("matchup", sort=False):
+                matchup_card(matchup_group)
 
         with st.expander("View full prediction data"):
             st.dataframe(
