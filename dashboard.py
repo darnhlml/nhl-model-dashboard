@@ -462,47 +462,92 @@ with tabs[0]:
 
 
 # ---------------------------
-# TEAM ANALYTICS
+# ADVANCED TEAM ANALYTICS
 # ---------------------------
 with tabs[1]:
     st.markdown(
         '<div class="section-label">TEAM INTELLIGENCE</div>'
-        '<div class="hero-title">Team Analytics.</div>',
+        '<div class="hero-title">Advanced Matchup Lab.</div>',
         unsafe_allow_html=True,
     )
-    st.caption("Compare model probabilities against market estimates.")
+    st.caption("5v5 advanced statistics from the latest report. These metrics provide context; they are not yet additional inputs to Verse's win probabilities.")
 
-    if df.empty:
-        st.info("Team analytics will appear once reports are available.")
+    if df.empty or "matchup" not in df.columns or "team" not in df.columns:
+        st.info("Advanced team analytics will appear when a prediction report is available.")
     else:
-        teams = sorted(df["team"].dropna().astype(str).unique())
-        selected = st.selectbox("Select a team", teams)
+        matchup_options = sorted(df["matchup"].dropna().astype(str).unique())
+        matchup = st.selectbox("Choose a matchup", matchup_options, key="analytics_matchup")
+        window = st.segmented_control("Recent games", options=[5, 10, 20, 40], default=10, key="analytics_window")
+        window = int(window or 10)
+        pair = df[df["matchup"].astype(str) == matchup].copy()
+        if len(pair) < 2:
+            st.warning("Both teams must be present in the report to compare this matchup.")
+        else:
+            away_rows = pair[pair["side"].astype(str).str.upper() == "AWAY"]
+            home_rows = pair[pair["side"].astype(str).str.upper() == "HOME"]
+            if away_rows.empty or home_rows.empty:
+                st.warning("The matchup is missing a HOME or AWAY row.")
+            else:
+                away = away_rows.iloc[0]
+                home = home_rows.iloc[0]
+                away_name, home_name = str(away["team"]), str(home["team"])
+                st.markdown(f"### {escape(away_name)} @ {escape(home_name)}")
 
-        team_df = df[df["team"].astype(str) == selected]
-        for _, row in team_df.iterrows():
-            pick_card(row)
+                def advanced_value(row, prefix):
+                    col = f"{prefix}_last_{window}"
+                    return numeric(row.get(col), None)
 
-        if {
-            "team", "model_win_pct", "no_vig_market_pct"
-        }.issubset(df.columns):
-            chart_df = df[
-                ["team", "model_win_pct", "no_vig_market_pct"]
-            ].copy()
+                def advanced_label(value, suffix="", decimals=2):
+                    return "—" if value is None else f"{value:.{decimals}f}{suffix}"
 
-            for col in ["model_win_pct", "no_vig_market_pct"]:
-                chart_df[col] = pd.to_numeric(
-                    chart_df[col], errors="coerce"
-                )
+                st.markdown("#### Offensive and Defensive Production")
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown(f"**{away_name} · Away**")
+                    st.metric("Expected Goals For / 60", advanced_label(advanced_value(away, "xgf_per60")))
+                    st.metric("Expected Goals Against / 60", advanced_label(advanced_value(away, "xga_per60")))
+                    st.metric("Expected Goals Share", advanced_label(advanced_value(away, "xgf_pct"), "%"))
+                with c2:
+                    st.markdown(f"**{home_name} · Home**")
+                    st.metric("Expected Goals For / 60", advanced_label(advanced_value(home, "xgf_per60")))
+                    st.metric("Expected Goals Against / 60", advanced_label(advanced_value(home, "xga_per60")))
+                    st.metric("Expected Goals Share", advanced_label(advanced_value(home, "xgf_pct"), "%"))
 
-            chart_df = chart_df.dropna()
-            chart_df = chart_df.rename(columns={
-                "model_win_pct": "Verse Model",
-                "no_vig_market_pct": "Market (No Vig)",
-            })
-            chart_df = chart_df.set_index("team")
+                metric_definitions = [
+                    ("xgf_pct", "Expected Goals Share (%)", "Higher is generally better"),
+                    ("hdcf_pct", "High-Danger Chance Share (%)", "Higher is generally better"),
+                    ("cf_pct", "Corsi For (%)", "Higher is generally better"),
+                    ("xgf_per60", "Expected Goals For / 60", "Higher is generally better"),
+                    ("xga_per60", "Expected Goals Against / 60", "Lower is generally better"),
+                    ("score_adj_xg_diff", "Score-Adjusted xG Differential", "Higher is generally better"),
+                ]
+                records = []
+                for key, label, interpretation in metric_definitions:
+                    records.append({
+                        "Metric": label,
+                        away_name: advanced_value(away, key),
+                        home_name: advanced_value(home, key),
+                        "Interpretation": interpretation,
+                    })
+                comparison = pd.DataFrame(records)
+                st.markdown("#### Advanced Head-to-Head Comparison")
+                st.dataframe(comparison, hide_index=True, use_container_width=True)
 
-            st.markdown("#### Model vs. Market")
-            st.bar_chart(chart_df)
+                for key, title, _ in metric_definitions:
+                    values = {away_name: advanced_value(away, key), home_name: advanced_value(home, key)}
+                    values = {name: value for name, value in values.items() if value is not None}
+                    if values:
+                        st.markdown(f"**{title}**")
+                        st.bar_chart(pd.DataFrame({"Value": values}).rename_axis("Team"), horizontal=True)
+
+                st.markdown("#### Model vs. Market")
+                forecast = pd.DataFrame({
+                    "Team": [away_name, home_name],
+                    "Verse Model": [numeric(away.get("model_win_pct"), None), numeric(home.get("model_win_pct"), None)],
+                    "Market (No Vig)": [numeric(away.get("no_vig_market_pct"), None), numeric(home.get("no_vig_market_pct"), None)],
+                }).set_index("Team")
+                st.bar_chart(forecast)
+                st.caption("These are team-level 5v5 statistics, not opponent-adjusted matchup forecasts. Goalie and special-teams effects are not included in the comparison charts.")
 
 
 # ---------------------------
@@ -514,47 +559,47 @@ with tabs[2]:
         '<div class="hero-title">Goalie Analytics.</div>',
         unsafe_allow_html=True,
     )
-    st.caption("Projected starters and their associated team forecasts.")
+    st.caption("Projected starters based on historical usage; no confirmed-starter claims. Recent save percentage is not GSAx.")
 
     if df.empty:
         st.info("Goalie information will appear with prediction data.")
     elif "projected_goalie" not in df.columns:
         st.info("The current report has no projected-goalie column.")
     else:
-        goalie_cols = [
-            col for col in [
-                "team",
-                "matchup",
-                "projected_goalie",
-                "goalie_win_pct",
-                "model_win_pct",
-                "fanduel_us_ml",
-                "edge_pp",
-            ]
-            if col in df.columns
-        ]
-
-        goalie_df = df[goalie_cols].copy()
-        goalie_df = goalie_df.rename(columns={
+        goalie_columns = {
             "team": "Team",
             "matchup": "Matchup",
             "projected_goalie": "Projected Goalie",
-            "goalie_win_pct": "Goalie Win %",
-            "model_win_pct": "Model Win %",
+            "projected_goalie_status": "Projection Status",
+            "projected_goalie_confidence": "Usage Share (%)",
+            "goalie_recent_sv_pct": "Recent SV%",
+            "goalie_recent_shots": "Recent Shots",
+            "goalie_games_checked": "Games Checked",
+            "goalie_win_pct_change": "Goalie Effect (pp)",
+            "model_win_pct": "Model Win (%)",
             "fanduel_us_ml": "FanDuel Odds",
-            "edge_pp": "Edge (pp)",
-        })
+        }
+        available = [col for col in goalie_columns if col in df.columns]
+        goalie_df = df[available].copy().rename(columns=goalie_columns)
+        st.dataframe(goalie_df, hide_index=True, use_container_width=True)
 
-        st.dataframe(
-            goalie_df,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.caption(
-            "Projected starters may change. Goalie-related fields "
-            "are shown as supplied by the prediction report."
-        )
+        if "team" in df.columns:
+            chosen = st.selectbox("Inspect a goalie projection", sorted(df["team"].dropna().astype(str).unique()), key="goalie_team")
+            matching = df[df["team"].astype(str) == chosen]
+            if not matching.empty:
+                player = matching.iloc[0]
+                st.markdown(f"### {txt(player.get('projected_goalie'))} · {escape(chosen)}")
+                g1, g2, g3 = st.columns(3)
+                with g1:
+                    sv = numeric(player.get("goalie_recent_sv_pct"), None)
+                    st.metric("Recent Save %", f"{sv * 100:.2f}%" if sv is not None else "—")
+                with g2:
+                    share = numeric(player.get("projected_goalie_confidence"), None)
+                    st.metric("Recent Usage Share", f"{share:.1f}%" if share is not None else "—")
+                with g3:
+                    change = numeric(player.get("goalie_win_pct_change"), None)
+                    st.metric("Model Probability Change", f"{change:+.2f} pp" if change is not None else "—")
+                st.caption("Usage share is a heuristic, not a calibrated probability that this goalie starts. The model's goalie adjustment is experimental.")
 
 
 # ---------------------------
